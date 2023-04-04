@@ -17,10 +17,23 @@ async fn main() -> Result<()> {
     );
     let (ds, ses) = db;
 
-    create_task(db, "Task 01", 10).await?;
-    create_task(db, "Task 02", 3).await?;
-    create_task(db, "Task 03", 1).await?;
-    create_task(db, "Task 04", 13).await?;
+    let t1 = create_task(db, "Task 01", 10).await?;
+    let t2 = create_task(db, "Task 02", 3).await?;
+    let t3 = create_task(db, "Task 03", 1).await?;
+    let t4 = create_task(db, "Task 04", 13).await?;
+
+    let sql = "UPDATE $th MERGE $data RETURN id";
+    let data: BTreeMap<String, Value> = [
+        ("title".into(), "Task 02 UPDATED".into()),
+        ("done".into(), true.into()),
+    ]
+    .into();
+    let vars: BTreeMap<String, Value> = [
+        ("th".into(), thing(&t2)?.into()),
+        ("data".into(), data.into()),
+    ]
+    .into();
+    ds.execute(sql, ses, Some(vars), true).await?;
 
     let sql = "SELECT * from task";
     let ress = ds.execute(sql, ses, None, false).await?;
@@ -31,7 +44,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn create_task((ds, ses): &DB, title: &str, priority: i32) -> Result<()> {
+async fn create_task((ds, ses): &DB, title: &str, priority: i32) -> Result<String> {
     let sql = "CREATE task CONTENT $data";
 
     let data: BTreeMap<String, Value> = [
@@ -44,7 +57,11 @@ async fn create_task((ds, ses): &DB, title: &str, priority: i32) -> Result<()> {
 
     let ress = ds.execute(sql, ses, Some(vars), false).await?;
 
-    Ok(())
+    into_iter_objects(ress)?
+        .next()
+        .transpose()?
+        .and_then(|obj| obj.get("id").map(|id| id.to_string()))
+        .ok_or_else(|| anyhow!("No id returned."))
 }
 
 fn into_iter_objects(ress: Vec<Response>) -> Result<impl Iterator<Item = Result<Object>>> {
